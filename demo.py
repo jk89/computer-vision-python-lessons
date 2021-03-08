@@ -187,7 +187,7 @@ def getEmptyWordDataInst():
 
 #load the model
 model = None
-with open('visionModel.pickle', 'rb') as handle:
+with open('models/visionModel.pickle', 'rb') as handle:
     model = pickle.load(handle)
 
 
@@ -296,7 +296,7 @@ class VisionModelPacker:
     #open file and unpack
     def loadModel(self, filename):
         print("loading file model")
-        with open('visionModel.pickle', 'rb') as handle:
+        with open('models/visionModel.pickle', 'rb') as handle:
             self.fileModel = pickle.load(handle)
 
     def timestampInt64(self):
@@ -777,7 +777,7 @@ class VisionModelPacker:
 startLoad = datetime.now() 
 
 #create this instance
-a = VisionModelPacker('visionModel.pickle') #visionModelK4N50k-2.pickle
+a = VisionModelPacker('models/visionModel.pickle') #visionModelK4N50k-2.pickle
 
 delta = datetime.now() - startLoad
 print("Init took " + str(delta.total_seconds()) + "(s)")
