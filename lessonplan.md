@@ -12,4 +12,3 @@
 10. Bundle adjustment
 11. Errors?
 12. SLAM
-
