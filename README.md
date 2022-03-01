@@ -7,3 +7,8 @@ Note training a hieratical tree from the clustering algorithm implemented in pyt
 Checkout lessonplan.md.
 
 As of Feb 2022 this project is abandoned until I have more spare time, project published as is without finishing it.
+
+![image](https://user-images.githubusercontent.com/5340589/156267876-0f798a53-1b0a-4ee4-b6a5-3feff9230cf9.png)
+
+https://www.youtube.com/shorts/RrHgLcek80g
+
