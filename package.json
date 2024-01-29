@@ -1,0 +1,13 @@
+{
+  "name": "computer-vision-python-lessons",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "create:venv": "python3 -m venv env",
+    "install:venv": "pip3 install -r  pip.freeze",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT"
+}
