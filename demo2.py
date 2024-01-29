@@ -1,11 +1,10 @@
 from __future__ import print_function, absolute_import
 import random
 from collections import OrderedDict
-from numba import njit
 from numba import int32, deferred_type, optional, types
 from numba.experimental import jitclass
 from numba.typed import List
-from numba import njit, typeof, typed, types
+from numba import njit, typeof, typed, types, prange
 import numpy as np
 import numba as nb
 import cv2
@@ -13,7 +12,6 @@ from matplotlib import gridspec
 from matplotlib import pyplot as plt
 import pickle
 import math
-from numba import njit, prange
 from datetime import datetime, timedelta
 # program needed 
 maxK = 110
@@ -178,455 +176,142 @@ with open('models/visionModel.pickle', 'rb') as handle:
 ####################################################################
 
 
-def initDatabaseModel(self):
-    #init database
-    self.database = {}
-    self.database["wordData"] = typed.Dict.empty(
-            key_type = types.string,
-            value_type = WordData.class_type.instance_type
-    )
-    self.database["frameData"] = typed.Dict.empty(
-            key_type = types.int64,
-            value_type = Frame.class_type.instance_type
-    )
-    for wordId in self.wordWeightKeys:
-        emptyWord = getEmptyWordDataInst()
-        self.database["wordData"][wordId] = emptyWord
-
-def packModel(self):
-    print("Packing computational model from file model")
-    # load the computeModel from the fileModel
-    wordWeights = self.fileModel["wordWeights"]
-    wordWeightKeys = wordWeights.keys()
-    self.wordWeightKeys = wordWeightKeys
-    for wordWeightKey in wordWeightKeys:
-        self.computeModel["wordWeight"][wordWeightKey] = wordWeights[wordWeightKey]
-    wordIndex = self.fileModel["wordIndex"]
-    self.wordIndexKeys = wordIndexKeys = wordIndex.keys()
-    for wordIndexKey in wordIndexKeys:
-            self.computeModel["wordInverseIndex"][wordIndex[wordIndexKey]] = wordIndexKey
-            self.computeModel["wordIndex"][wordIndexKey] = wordIndex[wordIndexKey]    
-    childrenMap = self.fileModel["children"]
-    childrenMapKeys = childrenMap.keys()
-    for childMapKey in childrenMapKeys:
-        listOfChildren = List()
-        for child in childrenMap[childMapKey]:
-           listOfChildren.append(child)
-        self.computeModel["children"][childMapKey] = listOfChildren
-    data = self.fileModel["data"]
-    dataKeys = data.keys()
-    for dataKey in dataKeys:
-        point = np.asarray(data[dataKey], dtype=kpsExample.dtype)
-        if point.shape[0] != 0:
-            self.computeModel["data"][dataKey] = point
-
-#open file and unpack
-def loadModel(self, filename):
-    print("loading file model")
-    with open('models/visionModel.pickle', 'rb') as handle:
-        self.fileModel = pickle.load(handle)
-
-def timestampInt64(self):
+def timestampInt64():
     return int((datetime.now() - epoch).total_seconds() * 1000000)
 
-def processFrame(self):
-    frameReadTime = self.timestampInt64()
-    _, input_img = self.cap.read()
-    _kp1, _des1 = self.orb.detectAndCompute(input_img, None)
-    if type(_des1) is tuple or _kp1 is None or _des1 is None:
-        return
-    kp1 = cv2.KeyPoint_convert(_kp1)
-    start = datetime.now() 
-    ret = self.engine.processFrame(kp1, _des1, frameReadTime)
-    if ret[0] is True: # we did an insert so save it to the frames folder
-        cv2.imwrite("frames/" + str(frameReadTime) + ".jpg", input_img)
-    else:
-        if self.old_kp1 is not None:
-            candidates = ret[1]
-            src_pts = np.float32([ _kp1[m[0]].pt for m in candidates ]).reshape(-1,1,2)
-            dst_pts = np.float32([ self.old_kp1[m[1]].pt for m in candidates ]).reshape(-1,1,2)
-            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
-            matchesMask = mask.ravel().tolist()
-            filtered_src_pts = np.asarray(list(filter(lambda x: x is not None, [kp1[candidates[i][0]] if matchesMask[i] == 1 else None for i in range(len(matchesMask))])))
-            filtered_dst_pts = np.asarray(list(filter(lambda x: x is not None, [self.old_kp1_np[candidates[i][1]] if matchesMask[i] == 1 else None for i in range(len(matchesMask))])))
-            E, mask = cv2.findEssentialMat(filtered_src_pts, filtered_dst_pts, focal=1.0, pp=(0., 0.), method=cv2.RANSAC, prob=0.999, threshold=3.0)
-            points, R, t, mask = cv2.recoverPose(E, filtered_src_pts, filtered_dst_pts)
-
-            if self.R is None:
-                self.R = R
-                self.t = t
-            elif self.R.shape == R.shape and self.t.shape == t.shape:
-                self.R = self.R + R
-                self.R[0][0] = 1
-                self.R[1][1] = 1
-                self.R[2][2] = 1
-                self.t = self.t + t
-            print("tracked points", filtered_dst_pts.shape)
-            print("mask essential matric", len(mask))
-            print("self.R", self.R) #points mask
-            print("self.t", self.t) #points mask
-            #M_r = np.hstack((R, t))
-            #M_l = np.hstack((np.eye(3, 3), np.zeros((3, 1))))
-            #P_l = np.dot(K_l,  M_l)
-            #P_r = np.dot(K_r,  M_r)
-            #point_4d_hom = cv2.triangulatePoints(P_l, P_r, np.expand_dims(pts_l, axis=1), np.expand_dims(pts_r, axis=1))
-            #point_4d = point_4d_hom / np.tile(point_4d_hom[-1, :], (4, 1))
-            #point_3d = point_4d[:3, :].T
-
-    delta = datetime.now() - start
-    self.old_kp1 = _kp1
-    self.old_img = input_img
-    self.old_kp1_np = kp1
-    print("addImageToDB took " + str(delta.total_seconds()) + "(s)")
-    return ret
-
-def computeAndDisplayPhraseAndFrame(self, input_img):
-    if input_img is None:
-        return (None, None)
-    _kp1, _des1 = self.orb.detectAndCompute(input_img, None)
-    _frameWithFeatures = cv2.drawKeypoints(input_img,_kp1,color=(0,255,0), outImage=None, flags=0)
-    if _des1 is None:
-        return (None, None)
-    phrase, _ = self.engine.getPhrase(_des1)
-    lenFeatures = phrase.shape[1]
-    if skipExpensiveGraphing == False:
-        _x = []
-        _y = []
-        for i in range(lenFeatures):
-            _x.append(phrase[0][i])
-            _y.append(i)
-        plt.figure("Visual Phrase Vector")
-        plt.clf()
-        if (len(_x) == len(_y)):
-            plt.plot(_x, _y)
-    return (phrase, _frameWithFeatures)
-
-def packVisionModelEvaluator(self, featureExample = [[1],[1]]):
-    if self.fileModel is None:
-        print("Please load a model first")
-    else:
-        #define storage types
-        self.initComputeModel()
-        self.packModel()
-        self.initDatabaseModel()
-
-        print("Defining jit compute class")
-        #define a jit compute instance with this model
-        specs_model = {}
-        specs_model['wordWeight'] =self.computeModel["wordWeight"]._dict_type
-        specs_model['wordData'] = self.database["wordData"]._dict_type
-        specs_model['wordIndex'] = self.computeModel["wordIndex"]._dict_type
-        specs_model['wordInverseIndex'] = self.computeModel["wordInverseIndex"]._dict_type
-        specs_model['data'] = self.computeModel["data"]._dict_type
-        specs_model['children'] = self.computeModel["children"]._dict_type
-        specs_model['intUnicodeMap'] = self.computeModel["intUnicodeMap"]._dict_type
-        specs_model['bowSize'] = types.int64
-        specs_model['frameData'] = self.database["frameData"]._dict_type
-        specs_model['lastKeyFrameInsertion'] = types.int64
-        specs_model['count'] = types.int64
-        specs_model['lastPhrase'] = bowExampleType
-        specs_model['lastWords'] = stringListExampleType
-        specs_model['lastKps'] = typeOfKpsExample 
-        class VisionModelEvaluator:
-            def findCommonWordIds(self, ancestorNodeId):
-                #ancestorNodeId like "0-1"
-                cont = True
-                nodesToFollow = List()
-                nodesToFollow.append(ancestorNodeId)
-                words = getEmptyStringList()
-                while (cont):
-                    nodeToFollow = nodesToFollow.pop()
-                    if nodeToFollow in self.children:
-                        descendants = self.children[nodeToFollow]
-                        for descendant in descendants:
-                            if descendant in self.children:
-                                nodesToFollow.append(descendant)
-                            else:
-                                if descendant in self.data:
-                                    lastLevelData = self.data[descendant]
-                                    lenData = lastLevelData.shape[0]
-                                    for i in range(lenData):
-                                        wordId = descendant+"-"+self.intUnicodeMap[i]
-                                        self.wordIndex[wordId]
-                                        words.append(wordId)
-                                else:
-                                    self.wordIndex[descendant]
-                                    words.append(descendant)
+def findCommonWordIds(ancestorNodeId, intUnicodeMap, data, children, wordIndex):
+    #ancestorNodeId like "0-1"
+    cont = True
+    nodesToFollow = List()
+    nodesToFollow.append(ancestorNodeId)
+    words = getEmptyStringList()
+    while (cont):
+        nodeToFollow = nodesToFollow.pop()
+        if nodeToFollow in children:
+            descendants = children[nodeToFollow]
+            for descendant in descendants:
+                if descendant in children:
+                    nodesToFollow.append(descendant)
+                else:
+                    if descendant in data:
+                        lastLevelData = data[descendant]
+                        lenData = lastLevelData.shape[0]
+                        for i in range(lenData):
+                            wordId = descendant+"-"+intUnicodeMap[i]
+                            wordIndex[wordId]
+                            words.append(wordId)
                     else:
-                        if nodeToFollow in self.data:
-                            thisWordsData = self.data[nodeToFollow]
-                            lenData = thisWordsData.shape[0]
-                            for i in range(lenData):
-                                wordId = nodeToFollow+"-"+self.intUnicodeMap[i]
-                                self.wordIndex[wordId]
-                                words.append(wordId)
-                        else:
-                            if nodeToFollow in self.wordIndex:
-                                words.append(nodeToFollow)
-                            else:
-                                raise ValueError("asd")
-                            #self.wordIndex[nodeToFollow]
-                            
-                    if len(nodesToFollow) == 0:
-                        cont = False
-                return words
-            def searchDB(self, kps, des, currentPhrase, frameReadTime, wordList, lastPhrase):
-                normalisedScoreThreshold = 0.3
-                #print("currentPhrase", currentPhrase)
-                #print("lastPhrase", self.lastPhrase)
-                approximateExpectedScore = self.getPhraseDistance(currentPhrase, lastPhrase)
-                if approximateExpectedScore < 0.1: #if the is little correspondance to the last frame skip search #camera has too much motion
-                    return
-                #scan frames bow self.frameData[self.count]
-                keyFrameKeys = self.frameData.keys()
-                #define an island
-                #island score
-                islands = typed.Dict.empty(
-                                key_type = types.int64,
-                                value_type = intListExampleType # list of int64s
-                )
-                scores = typed.Dict.empty(
-                                key_type = types.int64,
-                                value_type = types.float64
-                )
-                islandScore = typed.Dict.empty(
-                                key_type = types.int64,
-                                value_type = types.float64
-                )
-                
-                #temporal binning and framescore computation
-                keyFrameIslandId = 0
-                for keyFrameId in keyFrameKeys:
-                    keyFrameBOW = self.frameData[keyFrameId].bow
-                    frameBOWDistance = self.getPhraseDistance(keyFrameBOW, currentPhrase)
-                    normalisedScore = frameBOWDistance / approximateExpectedScore
-                    if (normalisedScore > normalisedScoreThreshold) and ((keyFrameIslandId > (keyFrameIslandId + temporalPoolingInterval)) or keyFrameIslandId == 0):
-                        keyFrameIslandId = keyFrameId
-                        islands[keyFrameIslandId] = getEmptyIntList()
-                        islands[keyFrameIslandId].append(keyFrameIslandId)
-                        scores[keyFrameIslandId] = normalisedScore
-                        islandScore[keyFrameIslandId] = normalisedScore
-                    elif normalisedScore > normalisedScoreThreshold:
-                        islands[keyFrameIslandId].append(keyFrameId)
-                        scores[keyFrameId] = normalisedScore
-                        islandScore[keyFrameIslandId] = islandScore[keyFrameIslandId] + normalisedScore
-                bestIslandScore = 0
-                bestIslandId = 0
-                for islandId in islandScore.keys():
-                    if islandScore[islandId] > bestIslandScore:
-                        bestIslandId = islandId
-                        bestIslandScore = islandScore[islandId]
-                print("best island", bestIslandScore, bestIslandId)
-                #check consistancy with k- previous queries??
-                #self.lastQueryIsland
-                # check last k intervals before now exist and have frames in them #frameReadTime
-                #best frame
-                bestFrameId = 0
-                bestFrameScore = 0
-                for frameId in islands[bestIslandId]:
-                    if scores[frameId] > bestFrameScore:
-                        bestFrameId = frameId
-                        bestFrameScore = scores[frameId]
-                #geometric check
-                #neighbouringWords
-                bestMatchFrameData = self.frameData[frameId]
-                # wordList
-                matches = 0
-                total = len(wordList)
-                for wordId in wordList:
-                    #check for correspondances
-                    if wordId in bestMatchFrameData.neighbouringWords:
-                        matches = matches + 1
-                if (matches != total):
-                    return
-                print("matches", matches, "total", total)
-                pass
-                # we have a loop closure
-                #perform Bundle adjustment
-                
-            def processFrame(self, kps, des, frameReadTime):
-                lastPhrase = self.lastPhrase
-                lastWords = self.lastWords
-                lastKps = self.lastKps
-                _currentPhrase, currentWordList = self.getPhrase(des)
-                if _currentPhrase is not None and kps is not None:
-                    currentPhrase = _currentPhrase[0]
+                        wordIndex[descendant]
+                        words.append(descendant)
+        else:
+            if nodeToFollow in data:
+                thisWordsData = data[nodeToFollow]
+                lenData = thisWordsData.shape[0]
+                for i in range(lenData):
+                    wordId = nodeToFollow+"-"+intUnicodeMap[i]
+                    wordIndex[wordId]
+                    words.append(wordId)
+            else:
+                if nodeToFollow in wordIndex:
+                    words.append(nodeToFollow)
                 else:
-                    return (False, getIndexPairsThing())
-                self.lastPhrase = currentPhrase
-                self.lastWords = currentWordList
-                self.lastKps = kps
-                #if 20 frames since the last insert
-                #More than 20 frames since last global relocalization ??
-                #Current frame tracks less than 90% than that of the reference keyframe ??
-                #Local mapping is idle, another thread
-                countVsLastInsertCount = (self.count - self.lastKeyFrameInsertion)
-                triggers = countVsLastInsertCount > 20
-                #Current frame tracks at least 50 points
-                #AND kps.shape[0] > 50: 
-                #    pass #test this
-                # has atleast one previous frame
-                required = kps.shape[0] > 50 #self.count > 1 and 
-                #start collecting lastPhrase for normalisation
-                #if not triggers and not required: #countVsLastInsertCount > 19 and
-                #    #print("setting lastPhrase")
-                #    lastPhrase, _ = self.getPhrase(des)
-                #    if lastPhrase is not None:
-                #        self.lastPhrase = lastPhrase[0]
+                    raise ValueError("asd")
                 
-                
-                self.count = self.count + 1
-                #if insert keyframe criteria are satisified
-                #print("triggrs, required",triggers, required)
-                if (triggers and required):
-                    self.addImageToDB(currentPhrase, kps, des, frameReadTime)
-                    if self.lastKeyFrameInsertion != 0: #only if we have a keyFrame
-                        self.searchDB(kps, des, currentPhrase, frameReadTime, currentWordList, lastPhrase)
-                        #global relocalations
-                    return (True, getIndexPairsThing())
-                else:
-                    return (False, self.findMatches(kps, lastKps, currentWordList, lastWords))
-            def findMatches(self, cKps, oldKps, cWords, oldWords):
-                lencWords = len(cWords)
-                candidatesList = getIndexPairsThing()
-                for cWordIndex in range(lencWords):
-                    cWord = cWords[cWordIndex]
-                    nearbyWords = self.findWordNeighbourhood(cWord)
-                    #any of these words existing in oldWords are a candidate match pair
-                    for nearbyWord in nearbyWords:
-                        #scan oldWords for matches
-                        if nearbyWord in oldWords:
-                            oldWordIndex = oldWords.index(nearbyWord)
-                            pair = getEmptyIntList()
-                            pair.append(cWordIndex)
-                            pair.append(oldWordIndex)
-                            #new = getEmptyFloat64List()
-                            #new.append(cKps[cWordIndex][0])
-                            #new.append(cKps[cWordIndex][1])
-                            #old = getEmptyFloat64List()
-                            #old.append(oldKps[oldWordIndex][0])
-                            #old.append(oldKps[oldWordIndex][1])
-                            #pair = List()
-                            #pair.append(new)
-                            #pair.append(old)
-                            #pair.append()
-                            #pair.append(oldKps[oldWordIndex])
-                            candidatesList.append(pair)
-                        pass
-                    pass
-                pass
-                return candidatesList
-            def findWordNeighbourhood(self, wordId, nearestAncestorDistance=1):
-                ancestorNodePath = wordId.split("-")[:-nearestAncestorDistance]
-                if len(ancestorNodePath) == 0:
-                    ancestorNodePath = ["root"]
-                    #root case?
-                    pass
-                ancestorNodeId = "-".join(ancestorNodePath)
-                return self.findCommonWordIds(ancestorNodeId)
-                
-            def addImageToDB(self, currentPhrase, kps, des, frameReadTime):
-                print("DB INSERT")
-                phrase = currentPhrase
-                if phrase is None:
-                    return
-                #print(self.wordInverseIndex)
-                """
-                correspondences only between those features that belong
-                to the same words, or to words with common ancestors at level l.
-                """
-                #print(self.children)
-                #print(self.wordIndex)
-                #print(self.data)
-                neighbouringWords = typed.Dict.empty(
-                                key_type = types.string,
-                                value_type = types.string
-                )
-                nearestAncestorDistance = 1 #getEmptyStringList()
-                for i in range(self.bowSize):
-                    # phrase[i] is the weight
-                    wordId = self.wordInverseIndex[i]
-                    wordWeightInImage = phrase[i]
-                    self.wordData[wordId].frameIds.append(self.count)
-                    self.wordData[wordId].frameWeights[self.count] = wordWeightInImage # might not need this jk remove
-                    #self.
-                    #self.frameIds = frameIds
-        #self.fameWeights = frameWeights
-                    ancestorNodePath = wordId.split("-")[:-nearestAncestorDistance]
-                    if len(ancestorNodePath) == 0:
-                        ancestorNodePath = ["root"]
-                        #root case?
-                        pass
-                    ancestorNodeId = "-".join(ancestorNodePath)
-                    commonWords = self.findCommonWordIds(ancestorNodeId)
-                    for neighbour in commonWords:
-                        neighbouringWords[neighbour] = wordId
-                        #if neighbour not in neighbouringWords:
-                        #    l = getEmptyStringList()
-                        #    l.append(wordId)
-                        #    neighbouringWords[neighbour] = l
-                        #else:
-                        #    neighbouringWords[neighbour].append(wordId)
-                    #print(commonWords)
-                    #print(wordId, i)
-                    # i is the wordIndex
-                    pass
-                #print(neighbouringWords)
-                self.lastKeyFrameInsertion = self.count
-                self.frameData[frameReadTime] = Frame(kps, des, phrase, neighbouringWords)
-            
-            def getPhrase(self, vecStack):
-                numberOfVecs = vecStack.shape[0]
-                outBowPhrase = np.zeros(shape=(1, self.bowSize), dtype=types.float64)
-                wordIds = getEmptyStringList()
-                for i in range(numberOfVecs):
-                    _vec = np.zeros(shape=(vecStack.shape[1]), dtype=vecStack.dtype)
-                    _vec = vecStack[i]
-                    wordId = self.getWordId(_vec)
-                    wordIds.append(wordId)
-                    #get weight
-                    wordWeight = 1
-                    if wordId in self.wordWeight:
-                        wordWeight = self.wordWeight[wordId]
-                    #get vector
-                    wordIndex = self.wordIndex[wordId]
-                    word = np.zeros(shape=(1, self.bowSize), dtype=types.float64)
-                    word[0][wordIndex] = wordWeight
-                    outBowPhrase = outBowPhrase + word
-                sumBow = np.sum(outBowPhrase) # jk fixme todo
-                #print("sumBow", sumBow)
-                #sumBow = 1
-                bowVec = outBowPhrase / sumBow
-                return bowVec, wordIds
-            
-            def getPhraseDistance(self, v1, v2):
-                return 1 - (0.5 * np.sum(np.abs((v1) - (v2))))
-                #return 1 - (0.5 * np.sum((v1/np.sum(v1))-(v2/np.sum(v2))))
-            
-            def getWordId(self, vec, above = None):
-                above = getEmptyIntList()
-                entryPoint = "root"
-                while (True):       
-                    if entryPoint not in self.data:
-                        return entryPoint
-                    levelData = self.data[entryPoint]
-                    _lenLevelData = levelData.shape[0]
-                    _lenFeature = levelData.shape[1]
-                    testColumn = np.zeros(shape=(_lenLevelData, _lenFeature), dtype=levelData.dtype)
-                    for i in range(0, _lenLevelData):
-                        testColumn[i] = vec
-                    pairwiseDistance =  (testColumn != levelData).sum(axis=1)
-                    bestChild = np.argmin(pairwiseDistance)
-                    above.append(bestChild)
-                    bestChildId = ""
-                    lenAbove = len(above)
-                    for i in range(lenAbove):
-                        if (i + 1 == lenAbove):
-                            bestChildId = bestChildId + self.intUnicodeMap[above[i]]
-                        else:
-                            bestChildId = bestChildId + self.intUnicodeMap[above[i]] + "-"
-                    entryPoint = bestChildId 
-###################################################################
+        if len(nodesToFollow) == 0:
+            cont = False
+    return words
+
+@njit(parallel=True)
+def findMatches(cKps, oldKps, cWords, oldWords):
+    lencWords = len(cWords)
+    candidatesList = getIndexPairsThing()
+    for cWordIndex in prange(lencWords):
+        cWord = cWords[cWordIndex]
+        nearbyWords = findWordNeighbourhood(cWord)
+        #any of these words existing in oldWords are a candidate match pair
+        for nearbyWord in nearbyWords:
+            #scan oldWords for matches
+            if nearbyWord in oldWords:
+                oldWordIndex = oldWords.index(nearbyWord)
+                pair = getEmptyIntList()
+                pair.append(cWordIndex)
+                pair.append(oldWordIndex)
+                candidatesList.append(pair)
+    return candidatesList
+
+@nb.jit(nopython=True)
+def findWordNeighbourhood(wordId, nearestAncestorDistance=1):
+    ancestorNodePath = wordId.split("-")[:-nearestAncestorDistance]
+    if len(ancestorNodePath) == 0:
+        ancestorNodePath = ["root"]
+        #root case?
+        pass
+    ancestorNodeId = "-".join(ancestorNodePath)
+    return findCommonWordIds(ancestorNodeId)
+    
+"""
+data: Any,
+    intUnicodeMap: Any,
+"""
+
+@njit(parallel=True)
+def getPhrase(vecStack, data, bowSize, intUnicodeMap, wordIndex, wordWeight):
+    numberOfVecs = vecStack.shape[0]
+    outBowPhrase = np.zeros(shape=(1, bowSize), dtype=types.float64)
+    wordIds = getEmptyStringList()
+    for i in prange(numberOfVecs):
+        print("i",i)
+        _vec = np.zeros(shape=(vecStack.shape[1]), dtype=vecStack.dtype)
+        _vec = vecStack[i]
+        wordId = getWordId(_vec, data, intUnicodeMap)
+        wordIds.append(wordId)
+        #get weight
+        wordWeight = 1
+        if wordId in wordWeight:
+            print("ooo")
+            wordWeight = wordWeight[wordId]
+        #get vector
+        print("wordId", wordId)
+        print("wordIndex", wordIndex)
+        wordIndex = wordIndex[wordId]
+        word = np.zeros(shape=(1, bowSize), dtype=types.float64)
+        word[0][wordIndex] = wordWeight
+        outBowPhrase = outBowPhrase + word
+    sumBow = np.sum(outBowPhrase) # jk fixme todo
+    #print("sumBow", sumBow)
+    #sumBow = 1
+    bowVec = outBowPhrase / sumBow
+    return bowVec, wordIds
+
+@nb.jit(nopython=True)
+def getPhraseDistance(v1, v2):
+    return 1 - (0.5 * np.sum(np.abs((v1) - (v2))))
+
+@nb.jit(nopython=True)
+def getWordId(vec, data, intUnicodeMap, above = None):
+    above = getEmptyIntList()
+    entryPoint = "root"
+    while (True):       
+        if entryPoint not in data:
+            return entryPoint
+        levelData = data[entryPoint]
+        _lenLevelData = levelData.shape[0]
+        _lenFeature = levelData.shape[1]
+        testColumn = np.zeros(shape=(_lenLevelData, _lenFeature), dtype=levelData.dtype)
+        for i in range(0, _lenLevelData):
+            testColumn[i] = vec
+        pairwiseDistance =  (testColumn != levelData).sum(axis=1)
+        bestChild = np.argmin(pairwiseDistance)
+        above.append(bestChild)
+        bestChildId = ""
+        lenAbove = len(above)
+        for i in range(lenAbove):
+            if (i + 1 == lenAbove):
+                bestChildId = bestChildId + intUnicodeMap[above[i]]
+            else:
+                bestChildId = bestChildId + intUnicodeMap[above[i]] + "-"
+        entryPoint = bestChildId 
+###########################################################
 
 #define the lass which packs the compute model and has higher level functions
 
@@ -640,6 +325,7 @@ class VisionModelPacker:
         self.old_kp1_np = None
         self.R = None
         self.t = None
+        self.bowSize = None
         #load model... or dont
         if filename is not None:
             self.loadModel(filename)
@@ -797,7 +483,16 @@ class VisionModelPacker:
         _frameWithFeatures = cv2.drawKeypoints(input_img,_kp1,color=(0,255,0), outImage=None, flags=0)
         if _des1 is None:
             return (None, None)
-        phrase, _ = self.engine.getPhrase(_des1)
+        # getPhrase(vecStack, data, bowSize, intUnicodeMap, wordIndex, wordWeight)
+        """
+        self.computeModel["data"],
+                self.computeModel["children"],
+                self.computeModel["intUnicodeMap"],
+        """
+        #                    _currentPhrase, currentWordList = getPhrase(des, self.data, self.bowSize, self.intUnicodeMap, self.wordIndex, self.wordWeight)
+        print("getting phrase in comp and display")
+        print('self.computeModel["wordIndex"]', self.computeModel["wordIndex"])
+        phrase, _ = getPhrase(_des1, self.computeModel["data"], self.bowSize, self.computeModel["intUnicodeMap"], self.computeModel["wordIndex"], self.computeModel["wordWeight"]) #getPhrase(_des1) # self.engine.
         lenFeatures = phrase.shape[1]
         if skipExpensiveGraphing == False:
             _x = []
@@ -823,6 +518,7 @@ class VisionModelPacker:
             self.initComputeModel()
             self.packModel()
             self.initDatabaseModel()
+            self.bowSize = len(self.wordIndexKeys)
 
     
             print("Defining jit compute class")
@@ -846,53 +542,13 @@ class VisionModelPacker:
 
 
                 def findCommonWordIds(self, ancestorNodeId):
-                    #ancestorNodeId like "0-1"
-                    cont = True
-                    nodesToFollow = List()
-                    nodesToFollow.append(ancestorNodeId)
-                    words = getEmptyStringList()
-                    while (cont):
-                        nodeToFollow = nodesToFollow.pop()
-                        if nodeToFollow in self.children:
-                            descendants = self.children[nodeToFollow]
-                            for descendant in descendants:
-                                if descendant in self.children:
-                                    nodesToFollow.append(descendant)
-                                else:
-                                    if descendant in self.data:
-                                        lastLevelData = self.data[descendant]
-                                        lenData = lastLevelData.shape[0]
-                                        for i in range(lenData):
-                                            wordId = descendant+"-"+self.intUnicodeMap[i]
-                                            self.wordIndex[wordId]
-                                            words.append(wordId)
-                                    else:
-                                        self.wordIndex[descendant]
-                                        words.append(descendant)
-                        else:
-                            if nodeToFollow in self.data:
-                                thisWordsData = self.data[nodeToFollow]
-                                lenData = thisWordsData.shape[0]
-                                for i in range(lenData):
-                                    wordId = nodeToFollow+"-"+self.intUnicodeMap[i]
-                                    self.wordIndex[wordId]
-                                    words.append(wordId)
-                            else:
-                                if nodeToFollow in self.wordIndex:
-                                    words.append(nodeToFollow)
-                                else:
-                                    raise ValueError("asd")
-                                #self.wordIndex[nodeToFollow]
-                                
-                        if len(nodesToFollow) == 0:
-                            cont = False
-                    return words
+                    return findCommonWordIds(ancestorNodeId, self.intUnicodeMap, self.data, self.children, self.wordIndex)
 
                 def searchDB(self, kps, des, currentPhrase, frameReadTime, wordList, lastPhrase):
                     normalisedScoreThreshold = 0.3
                     #print("currentPhrase", currentPhrase)
                     #print("lastPhrase", self.lastPhrase)
-                    approximateExpectedScore = self.getPhraseDistance(currentPhrase, lastPhrase)
+                    approximateExpectedScore = getPhraseDistance(currentPhrase, lastPhrase)
                     if approximateExpectedScore < 0.1: #if the is little correspondance to the last frame skip search #camera has too much motion
                         return
                     #scan frames bow self.frameData[self.count]
@@ -920,7 +576,7 @@ class VisionModelPacker:
                     keyFrameIslandId = 0
                     for keyFrameId in keyFrameKeys:
                         keyFrameBOW = self.frameData[keyFrameId].bow
-                        frameBOWDistance = self.getPhraseDistance(keyFrameBOW, currentPhrase)
+                        frameBOWDistance = getPhraseDistance(keyFrameBOW, currentPhrase)
                         normalisedScore = frameBOWDistance / approximateExpectedScore
                         if (normalisedScore > normalisedScoreThreshold) and ((keyFrameIslandId > (keyFrameIslandId + temporalPoolingInterval)) or keyFrameIslandId == 0):
                             keyFrameIslandId = keyFrameId
@@ -978,7 +634,9 @@ class VisionModelPacker:
                     lastPhrase = self.lastPhrase
                     lastWords = self.lastWords
                     lastKps = self.lastKps
-                    _currentPhrase, currentWordList = self.getPhrase(des)
+                    #getPhrase(vecStack, data, bowSize, intUnicodeMap, wordIndex, wordWeight)
+                    print("processFrame get phrase")
+                    _currentPhrase, currentWordList = getPhrase(des, self.data, self.bowSize, self.intUnicodeMap, self.wordIndex, self.wordWeight)
                     if _currentPhrase is not None and kps is not None:
                         currentPhrase = _currentPhrase[0]
                     else:
@@ -1008,11 +666,6 @@ class VisionModelPacker:
                     #    if lastPhrase is not None:
                     #        self.lastPhrase = lastPhrase[0]
 
-                    
-                    
-
-
-
                     self.count = self.count + 1
 
                     #if insert keyframe criteria are satisified
@@ -1024,48 +677,7 @@ class VisionModelPacker:
                             #global relocalations
                         return (True, getIndexPairsThing())
                     else:
-                        return (False, self.findMatches(kps, lastKps, currentWordList, lastWords))
-
-                def findMatches(self, cKps, oldKps, cWords, oldWords):
-                    lencWords = len(cWords)
-                    candidatesList = getIndexPairsThing()
-                    for cWordIndex in range(lencWords):
-                        cWord = cWords[cWordIndex]
-                        nearbyWords = self.findWordNeighbourhood(cWord)
-                        #any of these words existing in oldWords are a candidate match pair
-                        for nearbyWord in nearbyWords:
-                            #scan oldWords for matches
-                            if nearbyWord in oldWords:
-                                oldWordIndex = oldWords.index(nearbyWord)
-                                pair = getEmptyIntList()
-                                pair.append(cWordIndex)
-                                pair.append(oldWordIndex)
-                                #new = getEmptyFloat64List()
-                                #new.append(cKps[cWordIndex][0])
-                                #new.append(cKps[cWordIndex][1])
-                                #old = getEmptyFloat64List()
-                                #old.append(oldKps[oldWordIndex][0])
-                                #old.append(oldKps[oldWordIndex][1])
-                                #pair = List()
-                                #pair.append(new)
-                                #pair.append(old)
-                                #pair.append()
-                                #pair.append(oldKps[oldWordIndex])
-                                candidatesList.append(pair)
-                            pass
-                        pass
-                    pass
-                    return candidatesList
-
-                def findWordNeighbourhood(self, wordId, nearestAncestorDistance=1):
-                    ancestorNodePath = wordId.split("-")[:-nearestAncestorDistance]
-                    if len(ancestorNodePath) == 0:
-                        ancestorNodePath = ["root"]
-                        #root case?
-                        pass
-                    ancestorNodeId = "-".join(ancestorNodePath)
-                    return self.findCommonWordIds(ancestorNodeId)
-                    
+                        return (False, findMatches(kps, lastKps, currentWordList, lastWords))
 
 
                 def addImageToDB(self, currentPhrase, kps, des, frameReadTime):
@@ -1103,7 +715,7 @@ class VisionModelPacker:
                             #root case?
                             pass
                         ancestorNodeId = "-".join(ancestorNodePath)
-                        commonWords = self.findCommonWordIds(ancestorNodeId)
+                        commonWords = findCommonWordIds(ancestorNodeId, self.intUnicodeMap, self.data, self.children, self.wordIndex)
                         for neighbour in commonWords:
                             neighbouringWords[neighbour] = wordId
                             #if neighbour not in neighbouringWords:
@@ -1120,60 +732,8 @@ class VisionModelPacker:
                     self.lastKeyFrameInsertion = self.count
                     self.frameData[frameReadTime] = Frame(kps, des, phrase, neighbouringWords)
 
-                
-                def getPhrase(self, vecStack):
-                    numberOfVecs = vecStack.shape[0]
-                    outBowPhrase = np.zeros(shape=(1, self.bowSize), dtype=types.float64)
-                    wordIds = getEmptyStringList()
-                    for i in range(numberOfVecs):
-                        _vec = np.zeros(shape=(vecStack.shape[1]), dtype=vecStack.dtype)
-                        _vec = vecStack[i]
-                        wordId = self.getWordId(_vec)
-                        wordIds.append(wordId)
-                        #get weight
-                        wordWeight = 1
-                        if wordId in self.wordWeight:
-                            wordWeight = self.wordWeight[wordId]
-                        #get vector
-                        wordIndex = self.wordIndex[wordId]
-                        word = np.zeros(shape=(1, self.bowSize), dtype=types.float64)
-                        word[0][wordIndex] = wordWeight
-                        outBowPhrase = outBowPhrase + word
-                    sumBow = np.sum(outBowPhrase) # jk fixme todo
-                    #print("sumBow", sumBow)
-                    #sumBow = 1
-                    bowVec = outBowPhrase / sumBow
-                    return bowVec, wordIds
-                
-                def getPhraseDistance(self, v1, v2):
-                    return 1 - (0.5 * np.sum(np.abs((v1) - (v2))))
-                    #return 1 - (0.5 * np.sum((v1/np.sum(v1))-(v2/np.sum(v2))))
-                
                 def getWordId(self, vec, above = None):
-                    above = getEmptyIntList()
-                    entryPoint = "root"
-                    while (True):       
-                        if entryPoint not in self.data:
-                            return entryPoint
-                        levelData = self.data[entryPoint]
-                        _lenLevelData = levelData.shape[0]
-                        _lenFeature = levelData.shape[1]
-                        testColumn = np.zeros(shape=(_lenLevelData, _lenFeature), dtype=levelData.dtype)
-                        for i in range(0, _lenLevelData):
-                            testColumn[i] = vec
-                        pairwiseDistance =  (testColumn != levelData).sum(axis=1)
-                        bestChild = np.argmin(pairwiseDistance)
-                        above.append(bestChild)
-                        bestChildId = ""
-                        lenAbove = len(above)
-                        for i in range(lenAbove):
-                            if (i + 1 == lenAbove):
-                                bestChildId = bestChildId + self.intUnicodeMap[above[i]]
-                            else:
-                                bestChildId = bestChildId + self.intUnicodeMap[above[i]] + "-"
-                        entryPoint = bestChildId 
-            
-
+                    return getWordId(vec, self.data, self.intUnicodeMap, above)
     
                 def __init__(self, wordWeight, wordIndex, wordInverseIndex, data, _children, intUnicodeMap, frameData, wordData, bowSize, lastPhraseExample, stringListExample, lastKps):
                     self.wordWeight = wordWeight
@@ -1190,6 +750,7 @@ class VisionModelPacker:
                     self.lastPhrase = lastPhraseExample
                     self.lastWords = stringListExample
                     self.lastKps = lastKps
+                    print("bowwow", self.bowSize)
     
 
             print("Initalising compute engine")
@@ -1202,7 +763,7 @@ class VisionModelPacker:
                 self.computeModel["intUnicodeMap"],
                 self.database["frameData"],
                 self.database["wordData"],
-                len(self.wordIndexKeys),
+                self.bowSize,
                 bowExample,
                 stringListExample,
                 kpsExample

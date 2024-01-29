@@ -3,7 +3,7 @@ import random
 from collections import OrderedDict
 from numba import njit
 from numba import int32, deferred_type, optional, types
-from numba import jitclass
+from numba.experimental import jitclass
 from numba.typed import List
 from numba import njit, typeof, typed, types
 import numpy as np
@@ -406,7 +406,7 @@ class VisionModelPacker:
             specs_model['lastPhrase'] = bowExampleType
             specs_model['lastWords'] = stringListExampleType
             specs_model['lastKps'] = typeOfKpsExample 
-            @nb.jitclass(specs_model)
+            @jitclass(specs_model)
             class VisionModelEvaluator:
 
 
@@ -811,7 +811,10 @@ def demo():
     while (True):
         ini_time_for_now = datetime.now() 
         _, input_img = a.cap.read()
+        print("did cap")
         (phrase, frameWithFeatures) = a.computeAndDisplayPhraseAndFrame(input_img)
+        
+        print("got phrase")
         if (phrase is None):
             continue
         if skipExpensiveGraphing == False:
